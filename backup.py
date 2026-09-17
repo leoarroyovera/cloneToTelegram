@@ -175,16 +175,20 @@ async def _backup_media(client, dest_entity, dest_topic_id, msg, st, origin_topi
             caption=msg.message or "",
             reply_to=dest_topic_id,
             file_size=file_size,
-            # Las fotos que Telegram rechaza como PhotoSaveFileInvalidError
-            # (p.ej. >10MB, formato/metadata no soportados) se envian igual
-            # como documento, sin perder el archivo.
-            force_document=bool(msg.photo),
+            # Si en origen la imagen NO era msg.photo (se subio como
+            # document, p.ej. imagenes "Enviar sin compresion"), se respeta
+            # eso en destino: sin force_document, Telethon puede igual
+            # detectar la extension y mandarla como foto.
+            force_document=not bool(msg.photo),
         )
         if original_name:
             send_kwargs["attributes"] = [DocumentAttributeFilename(original_name)]
         try:
             await safe_run(client.send_file, dest_entity, handle, **send_kwargs)
-        except errors.PhotoSaveFileInvalidError:
+        except (errors.PhotoSaveFileInvalidError, errors.PhotoInvalidDimensionsError):
+            # Telegram rechazo la imagen como foto (p.ej. >10MB, dimensiones
+            # invalidas, formato/metadata no soportados): se reintenta como
+            # documento para no perder el archivo.
             print("    foto rechazada por Telegram, reintentando como documento...")
             send_kwargs["force_document"] = True
             await safe_run(client.send_file, dest_entity, handle, **send_kwargs)
