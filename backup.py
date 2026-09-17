@@ -3,6 +3,7 @@ import random
 import re
 from pathlib import Path
 
+from telethon import errors
 from telethon.tl.types import DocumentAttributeFilename
 
 import config
@@ -174,10 +175,19 @@ async def _backup_media(client, dest_entity, dest_topic_id, msg, st, origin_topi
             caption=msg.message or "",
             reply_to=dest_topic_id,
             file_size=file_size,
+            # Las fotos que Telegram rechaza como PhotoSaveFileInvalidError
+            # (p.ej. >10MB, formato/metadata no soportados) se envian igual
+            # como documento, sin perder el archivo.
+            force_document=bool(msg.photo),
         )
         if original_name:
             send_kwargs["attributes"] = [DocumentAttributeFilename(original_name)]
-        await safe_run(client.send_file, dest_entity, handle, **send_kwargs)
+        try:
+            await safe_run(client.send_file, dest_entity, handle, **send_kwargs)
+        except errors.PhotoSaveFileInvalidError:
+            print("    foto rechazada por Telegram, reintentando como documento...")
+            send_kwargs["force_document"] = True
+            await safe_run(client.send_file, dest_entity, handle, **send_kwargs)
         print(f"    listo")
     finally:
         if os.path.exists(tmp_path):
