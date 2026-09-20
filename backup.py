@@ -151,12 +151,29 @@ async def _backup_media(client, dest_entity, dest_topic_id, msg, st, origin_topi
     try:
         print(f"    descargando...")
         dl_progress = Progress("descarga", file_size)
-        downloaded = await safe_run(
-            client.download_media,
-            msg,
-            file=tmp_path,
-            progress_callback=dl_progress.update,
-        )
+        try:
+            downloaded = await safe_run(
+                client.download_media,
+                msg,
+                file=tmp_path,
+                progress_callback=dl_progress.update,
+            )
+        except errors.FileReferenceExpiredError:
+            # La file reference cacheada en msg expiro (~1h). Se relee el
+            # mensaje desde Telegram para obtener una referencia fresca.
+            print("    file reference expirada, releyendo mensaje...")
+            msg_id = msg.id
+            chat_id = msg.chat_id
+            msg = await client.get_messages(chat_id, ids=msg_id)
+            if msg is None or not msg.file:
+                state_mod.record_skipped(st, msg_id, origin_topic_id, "download_failed")
+                return
+            downloaded = await safe_run(
+                client.download_media,
+                msg,
+                file=tmp_path,
+                progress_callback=dl_progress.update,
+            )
         dl_progress.finish()
         if not downloaded:
             state_mod.record_skipped(st, msg.id, origin_topic_id, "download_failed")
