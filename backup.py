@@ -14,7 +14,7 @@ from progress import Progress
 from telegram_client import safe_run
 from topics import create_dest_channel, create_dest_topic, get_source_topics
 
-MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2GB (limite cuenta no-premium)
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024  # 4GB (limite cuenta premium)
 
 
 def _default_dest_title(source: str) -> str:
@@ -89,6 +89,45 @@ async def run_backup(
         await _process_topic(
             client, source_entity, dest_entity, topic, topic_state, st, source, limit_per_topic
         )
+
+
+async def retry_skipped(client, source: str, reasons: list[str] | None = None) -> None:
+    source_entity = await client.get_entity(source)
+    st = state_mod.load_state(source)
+    dest_entity = await client.get_entity(st["dest_chat_id"])
+
+    pending = st["skipped"]
+    remaining = []
+    print(f"Reintentando {len(pending)} mensaje(s) saltado(s)...")
+
+    for entry in pending:
+        if reasons is not None and entry["reason"] not in reasons:
+            remaining.append(entry)
+            continue
+
+        msg_id = entry["msg_id"]
+        origin_topic_id = entry["topic_id"]
+        topic_state = state_mod.get_topic_state(st, origin_topic_id)
+        dest_topic_id = topic_state["dest_topic_id"]
+
+        msg = await client.get_messages(source_entity, ids=msg_id)
+        if msg is None or not msg.file:
+            print(f"  [salto] msg {msg_id} ya no esta disponible en origen")
+            remaining.append(entry)
+            continue
+
+        new_skips = []
+        st["skipped"] = new_skips
+        await _process_message(client, dest_entity, dest_topic_id, msg, st, origin_topic_id)
+        if new_skips:
+            print(f"  msg {msg_id}: sigue fallando ({new_skips[0]['reason']})")
+            remaining.append(new_skips[0])
+        else:
+            print(f"  msg {msg_id}: reintento exitoso")
+
+    st["skipped"] = remaining
+    state_mod.save_state(source, st)
+    print(f"  {len(remaining)} mensaje(s) siguen pendientes")
 
 
 async def _process_topic(

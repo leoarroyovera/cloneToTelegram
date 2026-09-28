@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 
-from backup import run_backup
+from backup import retry_skipped, run_backup
 from telegram_client import build_client
 
 
@@ -16,6 +16,11 @@ def parse_args():
     parser.add_argument("--only-topic", type=int, default=None, help="limitar a un topic origen especifico")
     parser.add_argument("--limit-per-topic", type=int, default=None, help="limitar cantidad de mensajes por topic")
     parser.add_argument("--dry-run", action="store_true", help="solo listar topics, no escribir nada")
+    parser.add_argument(
+        "--retry-skipped",
+        action="store_true",
+        help="reintentar los mensajes marcados como 'skipped' en el state, en vez de correr el backup normal",
+    )
     return parser.parse_args()
 
 
@@ -27,15 +32,18 @@ async def main():
         me = await client.get_me()
         print(f"Sesion iniciada como: {me.first_name} (@{me.username})")
 
-        await run_backup(
-            client,
-            source=args.source,
-            dest_title=args.dest_title,
-            dest_chat_id=args.dest_chat_id,
-            only_topic=args.only_topic,
-            limit_per_topic=args.limit_per_topic,
-            dry_run=args.dry_run,
-        )
+        if args.retry_skipped:
+            await retry_skipped(client, source=args.source)
+        else:
+            await run_backup(
+                client,
+                source=args.source,
+                dest_title=args.dest_title,
+                dest_chat_id=args.dest_chat_id,
+                only_topic=args.only_topic,
+                limit_per_topic=args.limit_per_topic,
+                dry_run=args.dry_run,
+            )
 
 
 if __name__ == "__main__":
