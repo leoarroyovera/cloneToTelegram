@@ -3,5 +3,6 @@
 *.session-journal
 state/
 tmp_media/
+logs/
 __pycache__/
 *.pyc

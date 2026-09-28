@@ -15,3 +15,10 @@ API_ID = int(API_ID)
 SESSION_NAME = "backup_session"
 STATE_DIR = "state"
 TMP_MEDIA_DIR = "tmp_media"
+LOG_DIR = "logs"
+
+BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
+BOT_SESSION_NAME = "control_bot_session"
+
+_owner_id = os.environ.get("TG_OWNER_ID")
+BOT_OWNER_ID = int(_owner_id) if _owner_id else None

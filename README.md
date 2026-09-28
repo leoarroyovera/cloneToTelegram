@@ -67,17 +67,57 @@ Si el proceso se interrumpe (Ctrl+C, corte de red, error) en cualquier momento, 
 - **Links**: URLs encontradas en el texto o caption del mensaje, copiadas como mensaje de texto plano nuevo (no forward).
 - Se excluyen stickers y notas de voz.
 - Un mismo mensaje origen (por ejemplo, una foto con un link en el caption) puede generar tanto la subida de la media como el mensaje de texto con el link, ambos en el mismo topic destino.
-- Archivos que excedan el límite de subida de la cuenta (2GB) se saltan y quedan registrados en el checkpoint (`skipped`), sin detener la corrida.
+- Archivos que excedan el límite de subida de la cuenta (4GB, cuenta premium) se saltan y quedan registrados en el checkpoint (`skipped`), sin detener la corrida. Se pueden reintentar luego con `--retry-skipped`.
 
 ## Rendimiento
 
 La subida de archivos usa múltiples conexiones TCP paralelas al datacenter de Telegram (`fast_upload.py`), más rápido que la subida estándar de Telethon. Tanto la descarga como la subida muestran progreso periódico (porcentaje, velocidad, ETA) para archivos grandes.
+
+## Bot de control remoto
+
+`bot.py` levanta un bot de Telegram (token de @BotFather) que permite disparar y monitorear el backup desde el celular, sin necesidad de SSH.
+
+### Setup
+
+1. Crear un bot con [@BotFather](https://t.me/BotFather) y obtener el token.
+2. Obtener tu `user_id` numérico (por ejemplo con [@userinfobot](https://t.me/userinfobot)).
+3. Agregar a `.env` (ver `.env.example`):
+   ```
+   TG_BOT_TOKEN=<token de BotFather>
+   TG_OWNER_ID=<tu user_id numérico>
+   ```
+   El bot ignora cualquier comando que no venga de `TG_OWNER_ID`.
+4. Correr `python bot.py` (usa la sesión de usuario ya logueada para ejecutar los backups, y una sesión de bot nueva para escuchar comandos).
+
+### Comandos
+
+| Comando | Qué hace |
+|---|---|
+| `/status [source]` | Estado de los topics (pendiente/en progreso/completado) y cantidad de mensajes saltados. Sin argumento, muestra todas las fuentes con checkpoint guardado. |
+| `/run <source>` | Corre `run_backup` completo para esa fuente. |
+| `/retry <source>` | Corre `retry_skipped` para reprocesar los mensajes marcados como `skipped` (por ejemplo, los que excedían el límite de tamaño antes de subirlo a 4GB). |
+| `/logs [n]` | Últimas `n` líneas (default 30) del log del bot. |
+
+Solo se ejecuta una tarea (`/run` o `/retry`) a la vez; si hay una en curso, un nuevo comando avisa que hay que esperar en vez de correr en paralelo.
+
+### Correr como servicio (systemd)
+
+Copiar `clonetelegram-bot.service` a `/etc/systemd/system/`, ajustar `User`, `WorkingDirectory` y la ruta del intérprete de Python (`ExecStart`) según tu VPS, y luego:
+
+```
+sudo systemctl daemon-reload
+sudo systemctl enable --now clonetelegram-bot
+sudo systemctl status clonetelegram-bot
+```
+
+Con esto el bot arranca solo al reiniciar la VPS y se reinicia si el proceso muere.
 
 ## Estructura del proyecto
 
 ```
 main.py              CLI (argparse)
 backup.py             orquestación: itera topics -> mensajes -> respalda media/links
+bot.py                 bot de control remoto (/status /run /retry /logs)
 topics.py             descubrir topics origen, crear supergrupo y topics destino
 classify.py            clasificación de mensajes (media relevante / links)
 state.py               checkpoint (lectura/escritura atómica)
