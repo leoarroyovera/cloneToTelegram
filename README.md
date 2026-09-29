@@ -96,7 +96,8 @@ La subida de archivos usa múltiples conexiones TCP paralelas al datacenter de T
 | `/status [source]` | Estado de los topics (pendiente/en progreso/completado) y cantidad de mensajes saltados. Sin argumento, muestra todas las fuentes con checkpoint guardado. |
 | `/run <source>` | Corre `run_backup` completo para esa fuente. |
 | `/retry <source>` | Corre `retry_skipped` para reprocesar los mensajes marcados como `skipped` (por ejemplo, los que excedían el límite de tamaño antes de subirlo a 4GB). |
-| `/logs [n]` | Últimas `n` líneas (default 30) del log del bot. |
+| `/logs [n]` | Últimas `n` líneas (default 30) del log del bot (comandos recibidos, inicio/fin de tareas). |
+| `/backuplog [n]` | Últimas `n` líneas (default 30) del log del backup en curso o más reciente (el output de `run_backup`/`retry_skipped`). |
 
 Solo se ejecuta una tarea (`/run` o `/retry`) a la vez; si hay una en curso, un nuevo comando avisa que hay que esperar en vez de correr en paralelo.
 

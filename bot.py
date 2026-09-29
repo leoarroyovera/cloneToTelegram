@@ -2,6 +2,7 @@ import asyncio
 import glob
 import json
 import os
+import sys
 from datetime import datetime
 
 from telethon import TelegramClient, events
@@ -12,6 +13,7 @@ from backup import retry_skipped, run_backup
 from telegram_client import build_client
 
 LOG_PATH = os.path.join(config.LOG_DIR, "bot.log")
+BACKUP_LOG_PATH = os.path.join(config.LOG_DIR, "backup.log")
 
 _user_client: TelegramClient | None = None
 _busy_lock = asyncio.Lock()
@@ -24,6 +26,28 @@ def _log(line: str) -> None:
     with open(LOG_PATH, "a", encoding="utf-8") as f:
         f.write(f"[{stamp}] {line}\n")
     print(line)
+
+
+class _TeeToFile:
+    """Duplica cada linea escrita a stdout tambien hacia un archivo,
+    para poder exponer el output de run_backup/retry_skipped (que usan
+    print()) via el comando /backuplog."""
+
+    def __init__(self, path: str, original):
+        self._path = path
+        self._original = original
+
+    def write(self, data: str) -> int:
+        self._original.write(data)
+        if data.strip():
+            os.makedirs(config.LOG_DIR, exist_ok=True)
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(self._path, "a", encoding="utf-8") as f:
+                f.write(f"[{stamp}] {data}\n" if not data.endswith("\n") else f"[{stamp}] {data}")
+        return len(data)
+
+    def flush(self) -> None:
+        self._original.flush()
 
 
 def _require_owner(handler):
@@ -55,6 +79,8 @@ async def _run_locked(coro_fn, task_name: str, event, *args, **kwargs):
         _current_task = task_name
         await event.respond(f"Iniciando: {task_name}")
         _log(f"INICIO {task_name}")
+        original_stdout = sys.stdout
+        sys.stdout = _TeeToFile(BACKUP_LOG_PATH, original_stdout)
         try:
             await coro_fn(*args, **kwargs)
             await event.respond(f"Completado: {task_name}")
@@ -63,7 +89,20 @@ async def _run_locked(coro_fn, task_name: str, event, *args, **kwargs):
             await event.respond(f"Error en {task_name}: {e}")
             _log(f"ERROR {task_name}: {e!r}")
         finally:
+            sys.stdout = original_stdout
             _current_task = None
+
+
+async def _respond_tail(event, path: str, n: int) -> None:
+    if not os.path.exists(path):
+        await event.respond("Todavia no hay logs.")
+        return
+    with open(path, "r", encoding="utf-8") as f:
+        tail = f.readlines()[-n:]
+    text = "".join(tail) or "(log vacio)"
+    if len(text) > 3500:
+        text = text[-3500:]
+    await event.respond(f"```\n{text}\n```")
 
 
 def register_handlers(bot: TelegramClient) -> None:
@@ -101,15 +140,13 @@ def register_handlers(bot: TelegramClient) -> None:
     @_require_owner
     async def logs_handler(event):
         n = int(event.pattern_match.group(1) or 30)
-        if not os.path.exists(LOG_PATH):
-            await event.respond("Todavia no hay logs.")
-            return
-        with open(LOG_PATH, "r", encoding="utf-8") as f:
-            tail = f.readlines()[-n:]
-        text = "".join(tail) or "(log vacio)"
-        if len(text) > 3500:
-            text = text[-3500:]
-        await event.respond(f"```\n{text}\n```")
+        await _respond_tail(event, LOG_PATH, n)
+
+    @bot.on(events.NewMessage(pattern=r"/backuplog(?:\s+(\d+))?"))
+    @_require_owner
+    async def backuplog_handler(event):
+        n = int(event.pattern_match.group(1) or 30)
+        await _respond_tail(event, BACKUP_LOG_PATH, n)
 
     @bot.on(events.NewMessage(pattern="/help"))
     @_require_owner
@@ -119,7 +156,8 @@ def register_handlers(bot: TelegramClient) -> None:
             "/status [source] - estado de topics y saltados\n"
             "/run <source> - corre el backup completo\n"
             "/retry <source> - reintenta mensajes saltados\n"
-            "/logs [n] - ultimas n lineas de log (default 30)"
+            "/logs [n] - ultimas n lineas de log del bot (default 30)\n"
+            "/backuplog [n] - ultimas n lineas del log de backup (default 30)"
         )
 
 
