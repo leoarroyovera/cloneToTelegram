@@ -297,6 +297,15 @@ async def main() -> None:
 
     async with _user_client, bot:
         await bot.start(bot_token=config.BOT_TOKEN)
+        # Si la sesion del bot ya estaba autorizada con otra cuenta, Telethon
+        # ignora el token (solo emite un warning) y seguiria con esa cuenta.
+        me = await bot.get_me()
+        if not me.bot or str(me.id) != config.BOT_TOKEN.split(":", 1)[0]:
+            raise RuntimeError(
+                f"La sesion '{config.BOT_SESSION_NAME}.session' esta autorizada como "
+                f"id={me.id} (@{me.username}, bot={me.bot}), no como el bot de TG_BOT_TOKEN. "
+                f"Borra ese archivo y vuelve a arrancar para loguear con el token."
+            )
         register_handlers(bot)
         await bot(
             SetBotCommandsRequest(
