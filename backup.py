@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from telethon import errors
-from telethon.tl.types import DocumentAttributeFilename
+from telethon.tl.types import DocumentAttributeFilename, PeerChannel
 
 import config
 import state as state_mod
@@ -32,6 +32,22 @@ async def _resolve_dest_title(client, base_title: str) -> str:
     return base_title
 
 
+async def _get_dest_entity(client, chat_id: int):
+    """El estado guarda el id "pelado" del supergrupo (positivo). Pasado como
+    int a get_entity, Telethon lo interpreta como PeerUser, y solo funciona si
+    la entidad esta en la cache de la sesion. Se resuelve como PeerChannel y,
+    si no esta en cache, se refrescan los dialogos y se reintenta."""
+    if chat_id < 0:
+        # id marcado (-100xxxx), p.ej. pasado por --dest-chat-id
+        chat_id = int(str(chat_id).removeprefix("-100").lstrip("-"))
+    peer = PeerChannel(chat_id)
+    try:
+        return await client.get_entity(peer)
+    except ValueError:
+        await client.get_dialogs()
+        return await client.get_entity(peer)
+
+
 async def run_backup(
     client,
     source: str,
@@ -40,7 +56,11 @@ async def run_backup(
     only_topic: int | None = None,
     limit_per_topic: int | None = None,
     dry_run: bool = False,
+    update: bool = False,
 ) -> None:
+    """Con update=True no se saltan los topics ya marcados como 'done': se
+    revisan igual, y como _process_topic arranca desde last_processed_msg_id,
+    solo se respaldan los mensajes agregados despues del ultimo run."""
     source_entity = await client.get_entity(source)
     st = state_mod.load_state(source)
 
@@ -57,9 +77,9 @@ async def run_backup(
 
     if dest_chat_id:
         st["dest_chat_id"] = dest_chat_id
-        dest_entity = await client.get_entity(dest_chat_id)
+        dest_entity = await _get_dest_entity(client, dest_chat_id)
     elif st.get("dest_chat_id"):
-        dest_entity = await client.get_entity(st["dest_chat_id"])
+        dest_entity = await _get_dest_entity(client, st["dest_chat_id"])
     else:
         base_title = dest_title or _default_dest_title(source)
         final_title = await _resolve_dest_title(client, base_title)
@@ -82,7 +102,7 @@ async def run_backup(
             topic_state["dest_topic_id"] = dest_topic_id
             state_mod.save_state(source, st)
 
-        if topic_state["status"] == "done":
+        if topic_state["status"] == "done" and not update:
             print(f"Topic '{topic.title}' ya completado, se salta")
             continue
 
@@ -94,7 +114,7 @@ async def run_backup(
 async def retry_skipped(client, source: str, reasons: list[str] | None = None) -> None:
     source_entity = await client.get_entity(source)
     st = state_mod.load_state(source)
-    dest_entity = await client.get_entity(st["dest_chat_id"])
+    dest_entity = await _get_dest_entity(client, st["dest_chat_id"])
 
     pending = st["skipped"]
     remaining = []

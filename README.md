@@ -25,6 +25,7 @@ python main.py --source <grupo_origen> --dest-title "<Nombre del grupo nuevo>"
 | Flag | Qué hace |
 |---|---|
 | `--dry-run` | Solo lista los topics del grupo origen, no crea ni sube nada. |
+| `--update` | Revisa también los topics ya marcados como completados y respalda solo los mensajes nuevos (ver *Actualizar un respaldo ya completado*). |
 | `--only-topic <ID>` | Limita el proceso a un solo topic origen (para pruebas). |
 | `--limit-per-topic <N>` | Limita la cantidad de mensajes procesados por topic (para pruebas). |
 | `--dest-chat-id <ID>` | Reanuda contra un chat destino ya existente en vez de crear uno nuevo. |
@@ -61,6 +62,16 @@ El progreso se guarda automáticamente después de cada mensaje procesado (`stat
 
 Si el proceso se interrumpe (Ctrl+C, corte de red, error) en cualquier momento, basta con volver a correr el mismo comando: retoma exactamente donde quedó, sin duplicar contenido ya subido.
 
+### Actualizar un respaldo ya completado
+
+Un run normal se salta los topics marcados como `done`. Si al grupo origen le agregaron material nuevo después, usar `--update` (o `/update <source>` en el bot):
+
+```
+python main.py --source mi_grupo --update
+```
+
+Revisa todos los topics, incluidos los completados, y como cada uno arranca desde su `last_processed_msg_id`, solo se descargan y suben los mensajes posteriores al último respaldo, en el mismo topic destino. Los topics nuevos del origen se crean y respaldan completos. Un topic sin novedades cuesta una sola consulta.
+
 ## Qué se respalda
 
 - **Media**: fotos, videos, documentos y audio, descargados y re-subidos como archivo nuevo (no forward), preservando caption y nombre de archivo original.
@@ -93,13 +104,18 @@ La subida de archivos usa múltiples conexiones TCP paralelas al datacenter de T
 
 | Comando | Qué hace |
 |---|---|
+| `/menu` (o `/start`) | Menú con botones: Status, Run, Update, Retry, Cancelar run, Logs y Backup log. Run/Update/Retry muestran las fuentes con checkpoint guardado para elegir. |
 | `/status [source]` | Estado de los topics (pendiente/en progreso/completado) y cantidad de mensajes saltados. Sin argumento, muestra todas las fuentes con checkpoint guardado. |
-| `/run <source>` | Corre `run_backup` completo para esa fuente. |
+| `/run <source>` | Corre `run_backup` completo para esa fuente. Sin argumento, muestra las fuentes guardadas como botones. |
 | `/retry <source>` | Corre `retry_skipped` para reprocesar los mensajes marcados como `skipped` (por ejemplo, los que excedían el límite de tamaño antes de subirlo a 4GB). |
+| `/update <source>` | Como `/run` pero sin saltarse los topics completados: respalda solo los mensajes nuevos. Sin argumento, muestra las fuentes guardadas como botones. |
+| `/cancel` | Cancela la tarea en curso. Como el checkpoint se guarda tras cada mensaje, el próximo `/run` retoma desde el último mensaje completado. |
 | `/logs [n]` | Últimas `n` líneas (default 30) del log del bot (comandos recibidos, inicio/fin de tareas). |
 | `/backuplog [n]` | Últimas `n` líneas (default 30) del log del backup en curso o más reciente (el output de `run_backup`/`retry_skipped`). |
 
-Solo se ejecuta una tarea (`/run` o `/retry`) a la vez; si hay una en curso, un nuevo comando avisa que hay que esperar en vez de correr en paralelo.
+Solo se ejecuta una tarea (`/run` o `/retry`) a la vez; si hay una en curso, un nuevo comando avisa que hay que esperar (o usar `/cancel`) en vez de correr en paralelo.
+
+Al iniciar, el bot registra sus comandos en Telegram, así que aparecen en el menú "/" del chat.
 
 ### Correr como servicio (systemd)
 

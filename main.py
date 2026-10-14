@@ -21,6 +21,11 @@ def parse_args():
         action="store_true",
         help="reintentar los mensajes marcados como 'skipped' en el state, en vez de correr el backup normal",
     )
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="revisar tambien los topics ya completados y respaldar solo los mensajes nuevos",
+    )
     return parser.parse_args()
 
 
@@ -43,6 +48,7 @@ async def main():
                 only_topic=args.only_topic,
                 limit_per_topic=args.limit_per_topic,
                 dry_run=args.dry_run,
+                update=args.update,
             )
 
 
