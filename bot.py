@@ -295,7 +295,17 @@ async def main() -> None:
     _user_client = build_client()
     bot = TelegramClient(config.BOT_SESSION_NAME, config.API_ID, config.API_HASH)
 
-    async with _user_client, bot:
+    # No se usa "async with" en los clientes: su __aenter__ llama a start()
+    # sin argumentos, que con una sesion nueva pide telefono por consola (y
+    # con el bot, ahi se colaba la cuenta de usuario en vez del token).
+    try:
+        await _user_client.connect()
+        if not await _user_client.is_user_authorized():
+            raise RuntimeError(
+                f"La sesion de usuario '{config.SESSION_NAME}.session' no esta autorizada. "
+                f"Corre 'python main.py --source <grupo> --dry-run' una vez a mano para iniciar sesion."
+            )
+
         await bot.start(bot_token=config.BOT_TOKEN)
         # Si la sesion del bot ya estaba autorizada con otra cuenta, Telethon
         # ignora el token (solo emite un warning) y seguiria con esa cuenta.
@@ -316,6 +326,9 @@ async def main() -> None:
         )
         _log("Bot iniciado")
         await bot.run_until_disconnected()
+    finally:
+        await bot.disconnect()
+        await _user_client.disconnect()
 
 
 if __name__ == "__main__":
